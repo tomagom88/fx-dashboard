@@ -2,7 +2,6 @@
 #  FX 환율 웹 대시보드 v3
 #  - 차트: TradingView lightweight-charts (업비트 스타일 조작감)
 #  - 봉 종류: 1분/5분/15분/30분/1시간/일/주/월
-#  - 백테스팅: 환선물(달러선물) 계약 수 기반 손익 계산
 # =============================================================
 
 import json
@@ -15,6 +14,11 @@ import streamlit as st
 import streamlit.components.v1 as components
 import yfinance as yf
 
+try:
+    from streamlit_autorefresh import st_autorefresh
+except ImportError:
+    st_autorefresh = None
+
 st.set_page_config(page_title="FX 환율 대시보드", page_icon="💱", layout="wide")
 
 st.title("💱 FX 환율 기술적 분석 대시보드")
@@ -23,11 +27,9 @@ st.caption("데이터 출처: Yahoo Finance (yfinance) · 지연 시세이며 �
 # -------------------------------------------------------------
 # 1. 사이드바
 # -------------------------------------------------------------
-PAIRS = {
-    "원/달러 (USD/KRW)": "USDKRW=X",
-    "엔/달러 (USD/JPY)": "USDJPY=X",
-    "유로/달러 (EUR/USD)": "EURUSD=X",
-}
+# 원/달러 고정
+pair_label = "원/달러 (USD/KRW)"
+PAIRS = {pair_label: "USDKRW=X"}
 
 # 봉 종류별 yfinance 허용 조회 기간 (분봉은 최근 데이터만 제공됨)
 INTERVALS = {
@@ -44,8 +46,6 @@ INTERVALS = {
 with st.sidebar:
     st.header("⚙️ 설정")
 
-    pair_label = st.selectbox("환율 종류", list(PAIRS.keys()))
-
     st.subheader("🕐 타임프레임")
     iv_label = st.selectbox("봉 종류", list(INTERVALS.keys()), index=5)
     iv_conf = INTERVALS[iv_label]
@@ -57,29 +57,36 @@ with st.sidebar:
     )
 
     st.divider()
-    st.subheader("🧪 백테스팅 파라미터")
-    st.caption("환선물(예: KRX 미국달러선물) 기준")
-
-    initial_capital = st.number_input(
-        "초기 자본금 (원)", min_value=1_000_000, value=100_000_000, step=10_000_000,
-        help="백테스팅 시작 시점의 계좌 잔고. 수익률(%)과 자산 곡선의 기준이 됩니다.",
+    st.subheader("🔔 매수 시그널 알림")
+    alert_on = st.toggle(
+        "알림 켜기 (자동 새로고침)",
+        help="이 탭을 열어둔 동안 주기적으로 데이터를 다시 확인해, 새 매수 시그널이 나오면 알림을 띄웁니다.",
     )
-    contracts = st.number_input(
-        "계약 수", min_value=1, value=200, step=10,
-        help="한 번 진입할 때 매수하는 선물 계약 수.",
-    )
-    multiplier = st.number_input(
-        "계약 승수 (1포인트당 원)", min_value=1, value=10_000, step=1_000,
-        help="KRX 미국달러선물은 계약당 US$10,000 → 환율 1원 변동 시 계약당 10,000원 손익.",
-    )
-    stop_loss_pct = st.slider(
-        "손절 기준 (%)", 0.1, 10.0, 1.0, 0.1,
-        help="진입가 대비 이 비율만큼 하락하면 자동 청산 (손실 확정).",
-    )
-    take_profit_pct = st.slider(
-        "익절 기준 (%)", 0.1, 20.0, 2.0, 0.1,
-        help="진입가 대비 이 비율만큼 상승하면 자동 청산 (이익 확정).",
-    )
+    refresh_sec = 60
+    if alert_on:
+        refresh_sec = st.selectbox(
+            "확인 주기", [30, 60, 120], index=1,
+            format_func=lambda s: f"{s}초마다",
+        )
+        st.caption("브라우저 알림을 받으려면 아래 버튼을 한 번 눌러 권한을 허용해주세요.")
+        components.html("""
+<button onclick="
+  if ('Notification' in window) {
+    Notification.requestPermission().then(p => {
+      if (p === 'granted') {
+        new Notification('알림 설정 완료', { body: '매수 시그널이 발생하면 이렇게 알려드릴게요.' });
+      }
+    });
+  }
+  const ctx = new (window.AudioContext || window.webkitAudioContext)();
+  const o = ctx.createOscillator(); const g = ctx.createGain();
+  o.connect(g); g.connect(ctx.destination);
+  o.frequency.value = 880; g.gain.value = 0.15;
+  o.start(); o.stop(ctx.currentTime + 0.15);
+" style="width:100%; padding:8px; font-size:13px; cursor:pointer;
+         border:1px solid #ccc; border-radius:6px; background:#fff;">
+  🔔 알림 권한 허용 + 소리 테스트
+</button>""", height=45)
 
 ticker = PAIRS[pair_label]
 tf = {"period": iv_conf["periods"][period_label], "interval": iv_conf["interval"]}
@@ -175,18 +182,73 @@ def add_signals(data: pd.DataFrame) -> pd.DataFrame:
 
 df = add_signals(add_indicators(df))
 
+# -------------------------------------------------------------
+# 3.5 매수 시그널 알림 (자동 새로고침 + 화면/소리/브라우저 알림)
+# -------------------------------------------------------------
+if alert_on:
+    if st_autorefresh is not None:
+        st_autorefresh(interval=refresh_sec * 1000, key="signal_refresh")
+    else:
+        st.warning("자동 새로고침 패키지가 없습니다. requirements.txt에 "
+                   "`streamlit-autorefresh`를 추가했는지 확인해주세요.")
+
+    now_kst = pd.Timestamp.now(tz="Asia/Seoul").strftime("%H:%M:%S")
+
+    buy_times = df.index[df["BUY"]]
+    if len(buy_times) > 0:
+        last_sig = buy_times[-1]
+        # 최근 3개 봉 안에서 나온 시그널만 '새 시그널'로 간주
+        is_recent = last_sig >= df.index[max(0, len(df) - 3)]
+        sig_key = f"{ticker}|{tf['interval']}|{last_sig}"
+
+        if is_recent and st.session_state.get("last_alerted") != sig_key:
+            st.session_state["last_alerted"] = sig_key
+            sig_time = last_sig
+            if getattr(sig_time, "tz", None) is not None:
+                sig_time = sig_time.tz_convert("Asia/Seoul")
+            sig_str = sig_time.strftime("%m/%d %H:%M")
+            price_at_sig = float(df.loc[last_sig, "Close"])
+
+            st.toast(f"🔔 매수 시그널 발생! {pair_label} · {sig_str} · {price_at_sig:,.2f}",
+                     icon="🔔")
+            msg_body = f"{pair_label} {iv_label} / {sig_str} / 가격 {price_at_sig:,.2f}"
+            components.html("""
+<script>
+if ('Notification' in window && Notification.permission === 'granted') {
+  new Notification('🔔 매수 시그널 발생', { body: '__BODY__' });
+}
+try {
+  const ctx = new (window.AudioContext || window.webkitAudioContext)();
+  const beep = (t, f) => {
+    const o = ctx.createOscillator(); const g = ctx.createGain();
+    o.connect(g); g.connect(ctx.destination);
+    o.frequency.value = f; g.gain.value = 0.15;
+    o.start(ctx.currentTime + t); o.stop(ctx.currentTime + t + 0.15);
+  };
+  beep(0, 880); beep(0.2, 1100);
+} catch (e) {}
+</script>""".replace("__BODY__", msg_body), height=0)
+
+    last_sig_str = "-"
+    if len(buy_times) > 0:
+        t = buy_times[-1]
+        if getattr(t, "tz", None) is not None:
+            t = t.tz_convert("Asia/Seoul")
+        last_sig_str = t.strftime("%m/%d %H:%M")
+    st.caption(f"🔄 알림 작동 중 · 마지막 확인 {now_kst} (KST) · "
+               f"이 기간 내 마지막 매수 시그널: {last_sig_str} · "
+               f"⚠️ 이 탭을 열어둔 동안에만 알림이 옵니다")
+
 last_close = float(df["Close"].iloc[-1])
 prev_close = float(df["Close"].iloc[-2]) if len(df) > 1 else last_close
 change = last_close - prev_close
 change_pct = (change / prev_close * 100) if prev_close else 0.0
 
-c1, c2, c3, c4 = st.columns(4)
+c1, c2, c3 = st.columns(3)
 c1.metric(f"{pair_label} 현재가", f"{last_close:,.2f}", f"{change:+,.2f} ({change_pct:+.2f}%)")
 c2.metric("RSI(14)", f"{df['RSI'].iloc[-1]:.1f}" if pd.notna(df['RSI'].iloc[-1]) else "-")
 sma20_last = df["SMA20"].iloc[-1]
 c3.metric("SMA 20", f"{sma20_last:,.2f}" if pd.notna(sma20_last) else "-")
-c4.metric("1원 변동 손익", f"{multiplier * contracts:+,.0f}원",
-          f"{contracts}계약 × 승수 {multiplier:,}")
 
 # -------------------------------------------------------------
 # 4. 차트 데이터 → lightweight-charts용 JSON 변환
@@ -367,7 +429,7 @@ if (n > 150) {
 # -------------------------------------------------------------
 # 5. 메인 탭
 # -------------------------------------------------------------
-tab1, tab2, tab3 = st.tabs(["📈 FX 기술적 분석 차트", "🌍 거시경제 & 뉴스", "🧪 백테스팅 리포트"])
+tab1, tab2 = st.tabs(["📈 FX 기술적 분석 차트", "🌍 거시경제 & 뉴스"])
 
 # ===================== [탭 1] 차트 =====================
 with tab1:
@@ -379,7 +441,7 @@ with tab1:
     )
     st.info(
         "📌 **시그널 규칙** · 매수(▲): RSI가 30을 상향 돌파(과매도 탈출) · "
-        "매도(▼): RSI가 70을 하향 돌파(과매수 이탈). 탭 3의 백테스팅에 동일하게 사용됩니다."
+        "매도(▼): RSI가 70을 하향 돌파(과매수 이탈)"
     )
 
 # ===================== [탭 2] 거시경제 & 뉴스 =====================
@@ -431,96 +493,6 @@ with tab2:
                 st.markdown(f"- [{n['title']}]({n['link']}){pub}")
             else:
                 st.markdown(f"- {n['title']}{pub}")
-
-# ===================== [탭 3] 백테스팅 =====================
-with tab3:
-    st.subheader("🧪 환선물 RSI 전략 백테스팅")
-
-    notional = last_close * multiplier * contracts
-    st.caption(
-        f"전략: 매수 시그널에서 {contracts}계약 진입 → 매도 시그널 / 손절 -{stop_loss_pct}% / "
-        f"익절 +{take_profit_pct}% 중 먼저 도달 시 청산 (롱 온리 · 수수료/증거금/슬리피지 미반영) · "
-        f"현재가 기준 명목 계약금액: 약 {notional:,.0f}원"
-    )
-
-    def run_backtest(data, capital, n_contracts, mult, sl, tp):
-        equity = float(capital)
-        in_pos, entry = False, None
-        curve, trades = [], []
-
-        for _, row in data.iterrows():
-            price = row["Close"]
-            if pd.isna(price):
-                curve.append(equity)
-                continue
-
-            if not in_pos:
-                if bool(row["BUY"]):
-                    in_pos, entry = True, price
-            else:
-                ret = (price - entry) / entry * 100
-                if bool(row["SELL"]) or ret <= -sl or ret >= tp:
-                    pnl = (price - entry) * mult * n_contracts
-                    equity += pnl
-                    trades.append({"ret": ret, "pnl": pnl,
-                                   "entry": entry, "exit": price})
-                    in_pos, entry = False, None
-
-            open_pnl = (price - entry) * mult * n_contracts if in_pos else 0.0
-            curve.append(equity + open_pnl)
-
-        if in_pos:
-            price = data["Close"].iloc[-1]
-            pnl = (price - entry) * mult * n_contracts
-            equity += pnl
-            trades.append({"ret": (price - entry) / entry * 100, "pnl": pnl,
-                           "entry": entry, "exit": price})
-
-        eq = pd.Series(curve, index=data.index, name="Equity")
-        return eq, trades
-
-    equity, trades = run_backtest(df, initial_capital, contracts, multiplier,
-                                  stop_loss_pct, take_profit_pct)
-
-    if len(trades) == 0:
-        st.warning("이 기간/봉 종류에서 발생한 거래가 없습니다. 타임프레임을 바꿔보세요.")
-    else:
-        final_equity = float(equity.iloc[-1])
-        total_pnl = final_equity - initial_capital
-        total_return = total_pnl / initial_capital * 100
-        wins = sum(1 for t in trades if t["pnl"] > 0)
-        win_rate = wins / len(trades) * 100
-        running_max = equity.cummax()
-        mdd = float(((equity - running_max) / running_max * 100).min())
-
-        k1, k2, k3, k4, k5 = st.columns(5)
-        k1.metric("총 손익", f"{total_pnl:+,.0f}원")
-        k2.metric("수익률", f"{total_return:+.2f}%")
-        k3.metric("승률", f"{win_rate:.1f}%")
-        k4.metric("MDD", f"{mdd:.2f}%")
-        k5.metric("거래 횟수", f"{len(trades)}회")
-
-        efig = go.Figure()
-        efig.add_trace(go.Scatter(x=equity.index, y=equity.values, name="누적 자산",
-                                  line=dict(color="#2ca02c", width=2),
-                                  fill="tozeroy", fillcolor="rgba(44,160,44,0.08)"))
-        efig.add_hline(y=initial_capital, line_dash="dash", line_color="gray",
-                       annotation_text="초기 자본금")
-        efig.update_layout(title="누적 자산 변화 (Equity Curve)", height=420,
-                           margin=dict(l=10, r=10, t=50, b=10), yaxis_title="자산 (원)",
-                           hovermode="x unified")
-        st.plotly_chart(efig, use_container_width=True)
-
-        with st.expander("개별 거래 내역 보기"):
-            trade_df = pd.DataFrame({
-                "거래": range(1, len(trades) + 1),
-                "진입가": [round(t["entry"], 2) for t in trades],
-                "청산가": [round(t["exit"], 2) for t in trades],
-                "변동률 (%)": [round(t["ret"], 2) for t in trades],
-                "손익 (원)": [round(t["pnl"]) for t in trades],
-                "결과": ["✅ 이익" if t["pnl"] > 0 else "❌ 손실" for t in trades],
-            })
-            st.dataframe(trade_df, use_container_width=True, hide_index=True)
 
 st.divider()
 st.caption("⚠️ 본 대시보드는 학습·참고용이며 투자 손실에 대한 책임은 이용자 본인에게 있습니다.")
