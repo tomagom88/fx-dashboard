@@ -336,28 +336,55 @@ c3.metric("SMA 20", f"{sma20_last:,.2f}" if pd.notna(sma20_last) else "-")
 rsi_val = float(df["RSI"].iloc[-1]) if pd.notna(df["RSI"].iloc[-1]) else None
 
 if rsi_val is not None and pd.notna(sma20_last):
-    # RSI 해석
-    if rsi_val >= 70:
-        rsi_read = f"RSI {rsi_val:.1f} → **과매수 구간(70 이상)**, 단기 과열 상태"
-    elif rsi_val <= 30:
-        rsi_read = f"RSI {rsi_val:.1f} → **과매도 구간(30 이하)**, 단기 과락 상태"
-    elif rsi_val >= 55:
-        rsi_read = f"RSI {rsi_val:.1f} → 상승 힘이 조금 우세"
-    elif rsi_val <= 45:
-        rsi_read = f"RSI {rsi_val:.1f} → 하락 힘이 조금 우세"
-    else:
-        rsi_read = f"RSI {rsi_val:.1f} → 중립(50 부근), 힘의 균형 상태"
-
-    # 현재가 vs SMA 20 해석
     diff = last_close - float(sma20_last)
-    if abs(diff) / last_close < 0.001:  # 0.1% 이내면 평균에 붙어있는 것으로 간주
-        sma_read = f"현재가가 20평균에 거의 붙어있음({diff:+.2f}원) → 방향이 정해지지 않은 구간"
-    elif diff > 0:
-        sma_read = f"현재가가 20평균보다 **{diff:+.2f}원 위** → 단기 흐름은 상승 쪽"
-    else:
-        sma_read = f"현재가가 20평균보다 **{diff:+.2f}원 아래** → 단기 흐름은 하락 쪽"
+    near_avg = abs(diff) / last_close < 0.001  # 0.1% 이내면 평균에 붙은 것으로 간주
 
-    st.info(f"💡 **지금 읽기** · {sma_read} · {rsi_read}")
+    # RSI 항목: (짧은 판정, 설명)
+    if rsi_val >= 70:
+        rsi_short, rsi_desc = "과매수 ⚠️", f"{rsi_val:.1f} → 70 이상, 단기 과열 상태"
+    elif rsi_val <= 30:
+        rsi_short, rsi_desc = "과매도 ⚠️", f"{rsi_val:.1f} → 30 이하, 단기 과락 상태"
+    elif rsi_val >= 55:
+        rsi_short, rsi_desc = "상승 우위", f"{rsi_val:.1f} → 오르는 힘이 조금 우세"
+    elif rsi_val <= 45:
+        rsi_short, rsi_desc = "하락 우위", f"{rsi_val:.1f} → 내리는 힘이 조금 우세"
+    else:
+        rsi_short, rsi_desc = "중립", f"{rsi_val:.1f} → 50 부근, 힘의 균형 상태"
+
+    # 이동평균 항목
+    if near_avg:
+        sma_short, sma_desc = "방향 미정", f"현재가 ≈ 20평균 ({diff:+.2f}원 차이)"
+    elif diff > 0:
+        sma_short, sma_desc = "상승 흐름", f"현재가가 20평균보다 {diff:+.2f}원 위"
+    else:
+        sma_short, sma_desc = "하락 흐름", f"현재가가 20평균보다 {diff:+.2f}원 아래"
+
+    # 종합 판정 (두 지표를 합쳐 한 마디로)
+    if rsi_val >= 70:
+        verdict, v_color = "🔴 과열 주의", "#fdecea"
+    elif rsi_val <= 30:
+        verdict, v_color = "🔵 과락 — 반등 주시", "#e8f0fe"
+    elif not near_avg and diff > 0 and rsi_val >= 55:
+        verdict, v_color = "🔴 상승 우위", "#fdecea"
+    elif not near_avg and diff < 0 and rsi_val <= 45:
+        verdict, v_color = "🔵 하락 우위", "#e8f0fe"
+    else:
+        verdict, v_color = "🟡 관망 구간 — 뚜렷한 신호 없음", "#fff8e1"
+
+    st.markdown(f"""
+<div style="border:1px solid #dbe4f0; background:#f7faff; border-radius:10px;
+            padding:12px 16px; margin:4px 0 8px 0; line-height:1.7;">
+  <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin-bottom:6px;">
+    <span style="font-weight:600;">💡 지금 읽기</span>
+    <span style="background:{v_color}; padding:2px 12px; border-radius:12px;
+                 font-size:14px; font-weight:600;">{verdict}</span>
+  </div>
+  <div style="font-size:14px;">
+    <b>이동평균</b> · <b>{sma_short}</b> — {sma_desc}<br>
+    <b>RSI</b> · <b>{rsi_short}</b> — {rsi_desc}
+  </div>
+</div>
+""", unsafe_allow_html=True)
 
 with st.expander("📖 지표 쉽게 이해하기 (처음이라면 눌러보세요)"):
     st.markdown("""
@@ -435,7 +462,12 @@ payload = json.dumps({
 })
 
 CHART_HTML = """
-<div id="wrap" style="position:relative; width:100%; height:700px; font-family:sans-serif;">
+<style>
+@media (max-width: 640px) {
+  #wrap { padding: 0 12px; }
+}
+</style>
+<div id="wrap" style="position:relative; width:100%; height:700px; font-family:sans-serif; box-sizing:border-box;">
   <div id="legend" style="position:absolute; top:8px; left:12px; z-index:10;
        font-size:13px; color:#333; background:rgba(255,255,255,0.85);
        padding:4px 8px; border-radius:6px; line-height:1.6;"></div>
@@ -463,6 +495,11 @@ const chart = LWC.createChart(document.getElementById('chart'), {
     borderColor: '#d9d9d9',
     timeVisible: D.intraday, secondsVisible: false,
     rightOffset: 6, barSpacing: 8, minBarSpacing: 1,
+  },
+  handleScroll: {
+    mouseWheel: true, pressedMouseMove: true,
+    horzTouchDrag: true,
+    vertTouchDrag: false,
   },
   localization: { locale: 'ko-KR' },
 });
