@@ -1,6 +1,6 @@
 # =============================================================
-#  텔레그램 매수 시그널 알림 봇 (GitHub Actions에서 자동 실행)
-#  - 15분봉 기준 RSI 30 상향 돌파(매수 시그널) 감지 시 텔레그램 발송
+#  텔레그램 매수·매도 시그널 알림 봇 (GitHub Actions에서 자동 실행)
+#  - 15분봉 기준 RSI 매수(30 상향 돌파)·매도(70 하향 돌파) 감지 시 발송
 #  - 대시보드(app.py)와 동일한 시그널 규칙 사용
 # =============================================================
 
@@ -72,37 +72,44 @@ def main() -> int:
 
         rsi = compute_rsi(df["Close"])
         prev = rsi.shift(1)
-        buy = (prev < 30) & (rsi >= 30)
-        buy_times = df.index[buy]
+        signals = {
+            "매수": ((prev < 30) & (rsi >= 30), "🔴", "RSI 30 상향 돌파"),
+            "매도": ((prev > 70) & (rsi <= 70), "🔵", "RSI 70 하향 돌파"),
+        }
 
-        if len(buy_times) == 0:
-            print(f"[{symbol}] 시그널 없음 (현재 RSI {float(rsi.iloc[-1]):.1f})")
-            continue
+        found = False
+        for kind, (cond, icon, rule) in signals.items():
+            sig_times = df.index[cond]
+            if len(sig_times) == 0:
+                continue
 
-        last_sig = buy_times[-1]
-        sig_utc = last_sig.tz_convert("UTC") if last_sig.tz is not None \
-            else last_sig.tz_localize("UTC")
-        age_min = (now_utc - sig_utc).total_seconds() / 60
+            last_sig = sig_times[-1]
+            sig_utc = last_sig.tz_convert("UTC") if last_sig.tz is not None \
+                else last_sig.tz_localize("UTC")
+            age_min = (now_utc - sig_utc).total_seconds() / 60
 
-        if age_min > WINDOW_MINUTES:
-            print(f"[{symbol}] 마지막 시그널이 {age_min:.0f}분 전 → 알림 생략")
-            continue
+            if age_min > WINDOW_MINUTES:
+                continue
 
-        sig_kst = sig_utc.tz_convert("Asia/Seoul")
-        price = float(df.loc[last_sig, "Close"])
-        rsi_now = float(rsi.iloc[-1])
+            found = True
+            sig_kst = sig_utc.tz_convert("Asia/Seoul")
+            price = float(df.loc[last_sig, "Close"])
+            rsi_now = float(rsi.iloc[-1])
 
-        msg = (
-            "🔔 매수 시그널 발생\n"
-            f"종목: {name}\n"
-            f"시각: {sig_kst.strftime('%m/%d %H:%M')} (KST, {INTERVAL} 봉)\n"
-            f"가격: {price:,.2f}\n"
-            f"현재 RSI: {rsi_now:.1f} (30 상향 돌파)\n"
-            "※ 참고용 신호입니다. 지연 시세 기반이며 투자 판단은 실시간 시세로 하세요."
-        )
-        if send_telegram(msg):
-            print(f"[{symbol}] 알림 발송 완료: {sig_kst}")
-            sent_any = True
+            msg = (
+                f"{icon} {kind} 시그널 발생\n"
+                f"종목: {name}\n"
+                f"시각: {sig_kst.strftime('%m/%d %H:%M')} (KST, {INTERVAL} 봉)\n"
+                f"가격: {price:,.2f}\n"
+                f"현재 RSI: {rsi_now:.1f} ({rule})\n"
+                "※ 참고용 신호입니다. 지연 시세 기반이며 투자 판단은 실시간 시세로 하세요."
+            )
+            if send_telegram(msg):
+                print(f"[{symbol}] {kind} 알림 발송 완료: {sig_kst}")
+                sent_any = True
+
+        if not found:
+            print(f"[{symbol}] 최근 시그널 없음 (현재 RSI {float(rsi.iloc[-1]):.1f})")
 
     if not sent_any:
         print("이번 실행에서 발송된 알림 없음 (정상)")
