@@ -51,7 +51,7 @@ with st.sidebar:
     st.header("⚙️ 설정")
 
     st.subheader("🕐 타임프레임")
-    iv_label = st.selectbox("봉 종류", list(INTERVALS.keys()), index=5)
+    iv_label = st.selectbox("봉 종류", list(INTERVALS.keys()), index=0)
     iv_conf = INTERVALS[iv_label]
     period_options = list(iv_conf["periods"].keys())
     period_label = st.selectbox(
