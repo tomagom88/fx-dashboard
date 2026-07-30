@@ -1,6 +1,7 @@
 streamlit
 streamlit-autorefresh
-yfinance
+yfinance>=0.2.60
 plotly
 pandas
 numpy
+requests
