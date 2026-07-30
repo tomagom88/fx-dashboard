@@ -20,12 +20,23 @@ try:
 except ImportError:
     st_autorefresh = None
 
+import base64
 import os
 
 _icon = "icon.png" if os.path.exists("icon.png") else "💹"
-st.set_page_config(page_title="토마곰의 환율 매매 참고 지표", page_icon=_icon, layout="wide")
+st.set_page_config(page_title="토마곰 환율 지표", page_icon=_icon, layout="wide")
 
-st.title("₩/$ 토마곰의 환율 매매 참고 지표")
+# 제목: 곰 아이콘 + 짧은 제목
+if os.path.exists("icon.png"):
+    _b64 = base64.b64encode(open("icon.png", "rb").read()).decode()
+    st.markdown(
+        f'<h1 style="display:flex; align-items:center; gap:14px; margin-bottom:0.2rem;">'
+        f'<img src="data:image/png;base64,{_b64}" width="52" height="52" '
+        f'style="border-radius:12px;"> 토마곰 환율 지표</h1>',
+        unsafe_allow_html=True,
+    )
+else:
+    st.title("💹 토마곰 환율 지표")
 st.caption("데이터 출처: Yahoo Finance (yfinance) · 지연 시세이며 투자 조언이 아닙니다.")
 
 # -------------------------------------------------------------
