@@ -26,6 +26,14 @@ import os
 _icon = "icon.png" if os.path.exists("icon.png") else "💹"
 st.set_page_config(page_title="토마곰 환율 지표", page_icon=_icon, layout="wide")
 
+# 상단 빈 공간 줄이기 (기본 여백이 넓어서 축소)
+st.markdown("""
+<style>
+.block-container { padding-top: 1.2rem; }
+[data-testid="stSidebarContent"] { padding-top: 1.2rem; }
+</style>
+""", unsafe_allow_html=True)
+
 # 제목: 곰 아이콘 + 짧은 제목
 if os.path.exists("icon.png"):
     _b64 = base64.b64encode(open("icon.png", "rb").read()).decode()
