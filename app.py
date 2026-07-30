@@ -5,6 +5,7 @@
 # =============================================================
 
 import json
+import time
 
 import numpy as np
 import pandas as pd
@@ -19,9 +20,12 @@ try:
 except ImportError:
     st_autorefresh = None
 
-st.set_page_config(page_title="FX 환율 대시보드", page_icon="💱", layout="wide")
+import os
 
-st.title("💱 FX 환율 기술적 분석 대시보드")
+_icon = "icon.png" if os.path.exists("icon.png") else "💹"
+st.set_page_config(page_title="토마곰의 환율 매매 참고 지표", page_icon=_icon, layout="wide")
+
+st.title("₩/$ 토마곰의 환율 매매 참고 지표")
 st.caption("데이터 출처: Yahoo Finance (yfinance) · 지연 시세이며 투자 조언이 아닙니다.")
 
 # -------------------------------------------------------------
@@ -57,10 +61,10 @@ with st.sidebar:
     )
 
     st.divider()
-    st.subheader("🔔 매수 시그널 알림")
+    st.subheader("🔔 매수/매도 시그널 알림")
     alert_on = st.toggle(
         "알림 켜기 (자동 새로고침)",
-        help="이 탭을 열어둔 동안 주기적으로 데이터를 다시 확인해, 새 매수 시그널이 나오면 알림을 띄웁니다.",
+        help="이 탭을 열어둔 동안 주기적으로 데이터를 다시 확인해, 새 매수/매도 시그널이 나오면 알림을 띄웁니다.",
     )
     refresh_sec = 60
     if alert_on:
@@ -98,13 +102,46 @@ is_intraday = tf["interval"] in ("1m", "5m", "15m", "30m", "1h")
 # -------------------------------------------------------------
 @st.cache_data(ttl=300, show_spinner=False)
 def load_data(symbol: str, period: str, interval: str) -> pd.DataFrame:
-    df = yf.download(symbol, period=period, interval=interval,
-                     auto_adjust=True, progress=False)
-    if df is None or df.empty:
+    """3회 재시도 → 실패 시 예비 방식(Ticker.history)까지 시도.
+    실패하면 예외를 발생시켜 '빈 결과'가 캐시에 저장되지 않게 함."""
+
+    def clean(d):
+        if d is None or d.empty:
+            return None
+        if isinstance(d.columns, pd.MultiIndex):
+            d.columns = d.columns.get_level_values(0)
+        d = d.dropna(subset=["Close"]) if "Close" in d.columns else pd.DataFrame()
+        return d if not d.empty else None
+
+    last_err = None
+    for _ in range(3):
+        try:
+            out = clean(yf.download(symbol, period=period, interval=interval,
+                                    auto_adjust=True, progress=False))
+            if out is not None:
+                return out
+        except Exception as e:
+            last_err = e
+        time.sleep(1.5)
+
+    # 예비 방식: 같은 데이터를 다른 경로로 요청
+    try:
+        out = clean(yf.Ticker(symbol).history(period=period, interval=interval,
+                                              auto_adjust=True))
+        if out is not None:
+            return out
+    except Exception as e:
+        last_err = e
+
+    raise RuntimeError(f"야후 파이낸스 응답 없음 ({symbol}): {last_err}")
+
+
+def safe_load(symbol: str, period: str, interval: str) -> pd.DataFrame:
+    """보조 데이터(거시지표)용: 실패해도 앱이 멈추지 않게 빈 DataFrame 반환."""
+    try:
+        return load_data(symbol, period, interval)
+    except Exception:
         return pd.DataFrame()
-    if isinstance(df.columns, pd.MultiIndex):
-        df.columns = df.columns.get_level_values(0)
-    return df.dropna(subset=["Close"])
 
 
 @st.cache_data(ttl=1800, show_spinner=False)
@@ -141,8 +178,19 @@ def load_news(symbols: list) -> list:
     return unique[:15]
 
 
-with st.spinner("환율 데이터를 불러오는 중..."):
-    df = load_data(ticker, tf["period"], tf["interval"])
+try:
+    with st.spinner("환율 데이터를 불러오는 중..."):
+        df = load_data(ticker, tf["period"], tf["interval"])
+except Exception:
+    st.error(
+        "야후 파이낸스에서 데이터를 받지 못했습니다. "
+        "무료 데이터 특성상 일시적으로 요청이 거부될 때가 있습니다 (보통 몇 분 내 회복). "
+        "아래 버튼을 누르거나 잠시 후 다시 접속해주세요."
+    )
+    if st.button("🔄 다시 시도"):
+        load_data.clear()
+        st.rerun()
+    st.stop()
 
 if df.empty:
     st.error("데이터를 불러오지 못했습니다. 잠시 후 새로고침(F5) 해주세요.")
@@ -183,7 +231,7 @@ def add_signals(data: pd.DataFrame) -> pd.DataFrame:
 df = add_signals(add_indicators(df))
 
 # -------------------------------------------------------------
-# 3.5 매수 시그널 알림 (자동 새로고침 + 화면/소리/브라우저 알림)
+# 3.5 매수/매도 시그널 알림 (자동 새로고침 + 화면/소리/브라우저 알림)
 # -------------------------------------------------------------
 if alert_on:
     if st_autorefresh is not None:
@@ -194,28 +242,41 @@ if alert_on:
 
     now_kst = pd.Timestamp.now(tz="Asia/Seoul").strftime("%H:%M:%S")
 
+    def _kst_str(t):
+        if getattr(t, "tz", None) is not None:
+            t = t.tz_convert("Asia/Seoul")
+        return t.strftime("%m/%d %H:%M")
+
+    # 매수/매도 중 가장 최근 시그널 하나를 찾음
+    latest_sig, latest_kind = None, None
     buy_times = df.index[df["BUY"]]
+    sell_times = df.index[df["SELL"]]
     if len(buy_times) > 0:
-        last_sig = buy_times[-1]
+        latest_sig, latest_kind = buy_times[-1], "매수"
+    if len(sell_times) > 0 and (latest_sig is None or sell_times[-1] > latest_sig):
+        latest_sig, latest_kind = sell_times[-1], "매도"
+
+    if latest_sig is not None:
         # 최근 3개 봉 안에서 나온 시그널만 '새 시그널'로 간주
-        is_recent = last_sig >= df.index[max(0, len(df) - 3)]
-        sig_key = f"{ticker}|{tf['interval']}|{last_sig}"
+        is_recent = latest_sig >= df.index[max(0, len(df) - 3)]
+        sig_key = f"{ticker}|{tf['interval']}|{latest_kind}|{latest_sig}"
 
         if is_recent and st.session_state.get("last_alerted") != sig_key:
             st.session_state["last_alerted"] = sig_key
-            sig_time = last_sig
-            if getattr(sig_time, "tz", None) is not None:
-                sig_time = sig_time.tz_convert("Asia/Seoul")
-            sig_str = sig_time.strftime("%m/%d %H:%M")
-            price_at_sig = float(df.loc[last_sig, "Close"])
+            sig_str = _kst_str(latest_sig)
+            price_at_sig = float(df.loc[latest_sig, "Close"])
 
-            st.toast(f"🔔 매수 시그널 발생! {pair_label} · {sig_str} · {price_at_sig:,.2f}",
-                     icon="🔔")
+            icon = "🔴" if latest_kind == "매수" else "🔵"
+            st.toast(f"{icon} {latest_kind} 시그널 발생! {pair_label} · "
+                     f"{sig_str} · {price_at_sig:,.2f}", icon="🔔")
             msg_body = f"{pair_label} {iv_label} / {sig_str} / 가격 {price_at_sig:,.2f}"
+            # 매수: 올라가는 음(880→1100Hz) / 매도: 내려가는 음(1100→880Hz)
+            tones = "beep(0, 880); beep(0.2, 1100);" if latest_kind == "매수" \
+                else "beep(0, 1100); beep(0.2, 880);"
             components.html("""
 <script>
 if ('Notification' in window && Notification.permission === 'granted') {
-  new Notification('🔔 매수 시그널 발생', { body: '__BODY__' });
+  new Notification('__ICON__ __KIND__ 시그널 발생', { body: '__BODY__' });
 }
 try {
   const ctx = new (window.AudioContext || window.webkitAudioContext)();
@@ -225,18 +286,18 @@ try {
     o.frequency.value = f; g.gain.value = 0.15;
     o.start(ctx.currentTime + t); o.stop(ctx.currentTime + t + 0.15);
   };
-  beep(0, 880); beep(0.2, 1100);
+  __TONES__
 } catch (e) {}
-</script>""".replace("__BODY__", msg_body), height=0)
+</script>"""
+                .replace("__BODY__", msg_body)
+                .replace("__KIND__", latest_kind)
+                .replace("__ICON__", icon)
+                .replace("__TONES__", tones), height=0)
 
-    last_sig_str = "-"
-    if len(buy_times) > 0:
-        t = buy_times[-1]
-        if getattr(t, "tz", None) is not None:
-            t = t.tz_convert("Asia/Seoul")
-        last_sig_str = t.strftime("%m/%d %H:%M")
+    last_buy_str = _kst_str(buy_times[-1]) if len(buy_times) > 0 else "-"
+    last_sell_str = _kst_str(sell_times[-1]) if len(sell_times) > 0 else "-"
     st.caption(f"🔄 알림 작동 중 · 마지막 확인 {now_kst} (KST) · "
-               f"이 기간 내 마지막 매수 시그널: {last_sig_str} · "
+               f"마지막 매수 시그널: {last_buy_str} · 마지막 매도 시그널: {last_sell_str} · "
                f"⚠️ 이 탭을 열어둔 동안에만 알림이 옵니다")
 
 last_close = float(df["Close"].iloc[-1])
@@ -455,8 +516,8 @@ with tab2:
     else:
         m_period, m_interval = tf["period"], "1d"
 
-    dxy = load_data("DX-Y.NYB", m_period, m_interval)
-    tnx = load_data("^TNX", m_period, m_interval)
+    dxy = safe_load("DX-Y.NYB", m_period, m_interval)
+    tnx = safe_load("^TNX", m_period, m_interval)
 
     if dxy.empty or tnx.empty:
         st.warning("거시경제 데이터를 불러오지 못했습니다. 잠시 후 다시 시도해주세요.")
