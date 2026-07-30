@@ -10,6 +10,7 @@ import time
 import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
+import requests
 from plotly.subplots import make_subplots
 import streamlit as st
 import streamlit.components.v1 as components
@@ -164,37 +165,44 @@ def safe_load(symbol: str, period: str, interval: str) -> pd.DataFrame:
 
 
 @st.cache_data(ttl=1800, show_spinner=False)
-def load_news(symbols: list) -> list:
+def load_news() -> list:
+    """국내 언론사 경제 뉴스 RSS에서 한국어 헤드라인 수집.
+    환율/달러/금리 관련 기사를 앞쪽에 우선 배치."""
+    import xml.etree.ElementTree as ET
+
+    feeds = [
+        ("연합뉴스", "https://www.yna.co.kr/rss/economy.xml"),
+        ("매일경제", "https://www.mk.co.kr/rss/30100041/"),
+        ("한국경제", "https://www.hankyung.com/feed/economy"),
+    ]
+    keywords = ["환율", "달러", "원화", "외환", "연준", "Fed", "금리",
+                "FOMC", "한은", "한국은행", "엔화", "위안"]
+
     items = []
-    for sym in symbols:
+    for src, url in feeds:
         try:
-            raw = yf.Ticker(sym).news or []
+            r = requests.get(url, timeout=10,
+                             headers={"User-Agent": "Mozilla/5.0"})
+            root = ET.fromstring(r.content)
+            for it in root.iter("item"):
+                title = (it.findtext("title") or "").strip()
+                link = (it.findtext("link") or "").strip()
+                if title:
+                    items.append({"title": title, "link": link, "src": src})
         except Exception:
-            raw = []
-        for n in raw:
-            content = n.get("content", n)
-            title = content.get("title")
-            if not title:
-                continue
-            link = ""
-            url_obj = content.get("canonicalUrl") or content.get("clickThroughUrl")
-            if isinstance(url_obj, dict):
-                link = url_obj.get("url", "")
-            elif isinstance(content.get("link"), str):
-                link = content["link"]
-            publisher = ""
-            prov = content.get("provider")
-            if isinstance(prov, dict):
-                publisher = prov.get("displayName", "")
-            elif isinstance(n.get("publisher"), str):
-                publisher = n["publisher"]
-            items.append({"title": title, "link": link, "publisher": publisher})
+            continue
+
+    # 중복 제거
     seen, unique = set(), []
     for it in items:
         if it["title"] not in seen:
             seen.add(it["title"])
             unique.append(it)
-    return unique[:15]
+
+    # 환율 관련 기사 우선, 나머지 일반 경제 뉴스는 뒤에
+    fx_news = [it for it in unique if any(k in it["title"] for k in keywords)]
+    etc_news = [it for it in unique if it not in fx_news]
+    return (fx_news + etc_news)[:12], len(fx_news)
 
 
 try:
@@ -646,17 +654,21 @@ with tab2:
         mc2.metric("미 10년물 금리", f"{float(tnx['Close'].iloc[-1]):.3f}%")
 
     st.divider()
-    st.subheader("📰 관련 뉴스 헤드라인")
-    news = load_news([ticker, "DX-Y.NYB", "^TNX"])
+    st.subheader("📰 국내 경제 뉴스 헤드라인")
+    st.caption("연합뉴스·매일경제·한국경제 경제 섹션 · 환율/금리 관련 기사가 위쪽에 표시됩니다")
+    try:
+        news, fx_count = load_news()
+    except Exception:
+        news, fx_count = [], 0
     if not news:
-        st.caption("현재 표시할 뉴스가 없습니다.")
+        st.caption("현재 표시할 뉴스가 없습니다. 잠시 후 다시 확인해주세요.")
     else:
-        for n in news:
-            pub = f" — *{n['publisher']}*" if n["publisher"] else ""
+        for i, n in enumerate(news):
+            tag = "💱 " if i < fx_count else ""
             if n["link"]:
-                st.markdown(f"- [{n['title']}]({n['link']}){pub}")
+                st.markdown(f"- {tag}[{n['title']}]({n['link']}) — *{n['src']}*")
             else:
-                st.markdown(f"- {n['title']}{pub}")
+                st.markdown(f"- {tag}{n['title']} — *{n['src']}*")
 
 st.divider()
 st.caption("⚠️ 본 대시보드는 학습·참고용이며 투자 손실에 대한 책임은 이용자 본인에게 있습니다.")
