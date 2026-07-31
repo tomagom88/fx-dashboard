@@ -657,7 +657,7 @@ const chart = LWC.createChart(document.getElementById('gchart'), {
   localization: { locale: 'ko-KR' },
 });
 
-const baseOpts = (fmt) => ({
+const baseOpts = (fmt, extras) => ({
   baseValue: { type: 'price', price: 0 },
   topLineColor: '#d24f45',
   topFillColor1: 'rgba(210,79,69,0.35)',
@@ -671,11 +671,14 @@ const baseOpts = (fmt) => ({
   autoscaleInfoProvider: (original) => {
     const res = original();
     if (res && res.priceRange) {
-      res.priceRange.minValue = Math.min(res.priceRange.minValue, 0);
-      res.priceRange.maxValue = Math.max(res.priceRange.maxValue, 0);
-      const span = res.priceRange.maxValue - res.priceRange.minValue;
-      res.priceRange.minValue -= span * 0.08;
-      res.priceRange.maxValue += span * 0.08;
+      let mn = Math.min(res.priceRange.minValue, 0);
+      let mx = Math.max(res.priceRange.maxValue, 0);
+      (extras || []).forEach((v) => {
+        mn = Math.min(mn, v); mx = Math.max(mx, v);
+      });
+      const span = mx - mn;
+      res.priceRange.minValue = mn - span * 0.08;
+      res.priceRange.maxValue = mx + span * 0.08;
     }
     return res;
   },
@@ -683,16 +686,26 @@ const baseOpts = (fmt) => ({
 
 // 위: 갭 (원) / 아래: 갭 (%)
 const gapS = chart.addSeries(LWC.BaselineSeries,
-  baseOpts({ type: 'price', precision: 2, minMove: 0.01 }), 0);
+  baseOpts({ type: 'price', precision: 2, minMove: 0.01 }, D.levels), 0);
 gapS.setData(D.gap);
 gapS.createPriceLine({ price: 0, color: '#5f5e5a', lineWidth: 2,
   lineStyle: 0, axisLabelVisible: true, title: '기준 0' });
 
 const pctS = chart.addSeries(LWC.BaselineSeries,
-  baseOpts({ type: 'price', precision: 3, minMove: 0.001 }), 1);
+  baseOpts({ type: 'price', precision: 3, minMove: 0.001 }, D.pctLevels), 1);
 pctS.setData(D.pct);
 pctS.createPriceLine({ price: 0, color: '#5f5e5a', lineWidth: 2,
   lineStyle: 0, axisLabelVisible: true, title: '기준 0' });
+
+// 사용자 지정 기준선 (트레이딩뷰 노란 수평선 스타일)
+(D.levels || []).forEach((v) => {
+  gapS.createPriceLine({ price: v, color: '#e0a800', lineWidth: 2,
+    lineStyle: 0, axisLabelVisible: true, title: '기준선' });
+});
+(D.pctLevels || []).forEach((v) => {
+  pctS.createPriceLine({ price: v, color: '#e0a800', lineWidth: 2,
+    lineStyle: 0, axisLabelVisible: true, title: '기준선' });
+});
 
 try {
   const panes = chart.panes();
@@ -732,8 +745,8 @@ if (n > 180) {
 # -------------------------------------------------------------
 # 5. 메인 탭
 # -------------------------------------------------------------
-tab1, tab_gap, tab2 = st.tabs(
-    ["📈 FX 기술적 분석 차트", "🪙 테더-환율 갭", "🌍 거시경제 & 뉴스"])
+tab_gap, tab1, tab2 = st.tabs(
+    ["🪙 테더-환율 갭", "📈 환율 분석 차트", "🌍 거시경제 & 뉴스"])
 
 # ===================== [탭 1] 차트 =====================
 with tab1:
@@ -761,6 +774,19 @@ with tab_gap:
     g_label = st.radio("봉 종류", list(GAP_CONF.keys()), horizontal=True,
                        key="gap_interval")
     bit_code, g_yf_iv, g_yf_period, g_tail = GAP_CONF[g_label]
+
+    level_input = st.text_input(
+        "📏 기준선 (원 단위 · 콤마로 여러 개 입력 가능)",
+        value="", placeholder="예: -15, -20", key="gap_levels",
+        help="입력한 값 위치에 노란 수평선이 그려집니다. 아래 % 차트에도 같은 위치가 자동 환산되어 표시돼요.",
+    )
+    user_levels = []
+    for tok in level_input.replace(" ", "").split(","):
+        if tok:
+            try:
+                user_levels.append(float(tok))
+            except ValueError:
+                pass
 
     try:
         usdt = load_bithumb_usdt(bit_code)
@@ -805,6 +831,8 @@ with tab_gap:
                 "pct": series_json(g_times, merged["pct"]),
                 "lastGap": round(last_gap, 2),
                 "lastPct": round(last_pct, 3),
+                "levels": [round(v, 2) for v in user_levels],
+                "pctLevels": [round(v / last_fx * 100, 3) for v in user_levels],
             })
             components.html(GAP_HTML.replace("__PAYLOAD__", g_payload), height=530)
 
