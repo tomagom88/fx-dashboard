@@ -622,7 +622,12 @@ GAP_HTML = """
   #gwrap { padding: 0 12px; }
 }
 </style>
-<div id="gwrap" style="position:relative; width:100%; height:520px; font-family:sans-serif; box-sizing:border-box;">
+<style>
+@media (max-width: 640px) {
+  #gwrap { padding: 0 12px; }
+}
+</style>
+<div id="gwrap" style="position:relative; width:100%; height:600px; font-family:sans-serif; box-sizing:border-box;">
   <div id="glegend" style="position:absolute; top:8px; left:12px; z-index:10;
        font-size:13px; color:#333; background:rgba(255,255,255,0.85);
        padding:4px 8px; border-radius:6px; line-height:1.6;"></div>
@@ -709,7 +714,7 @@ pctS.createPriceLine({ price: 0, color: '#5f5e5a', lineWidth: 2,
 
 try {
   const panes = chart.panes();
-  if (panes[1]) panes[1].setHeight(170);
+  if (panes[1]) panes[1].setHeight(220);
 } catch (e) {}
 
 const legend = document.getElementById('glegend');
@@ -852,7 +857,7 @@ with tab_gap:
                 "levels": [round(v, 2) for v in user_levels],
                 "pctLevels": [round(v / last_fx * 100, 3) for v in user_levels],
             })
-            components.html(GAP_HTML.replace("__PAYLOAD__", g_payload), height=530)
+            components.html(GAP_HTML.replace("__PAYLOAD__", g_payload), height=610)
 
             st.caption(
                 "🖱️ 위 차트: 갭(원) = 빗썸 테더가 − 환율 · 아래 차트: 갭(%) = 갭 ÷ 환율 × 100 · "
