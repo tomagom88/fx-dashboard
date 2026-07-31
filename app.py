@@ -775,11 +775,20 @@ with tab_gap:
                        key="gap_interval")
     bit_code, g_yf_iv, g_yf_period, g_tail = GAP_CONF[g_label]
 
-    level_input = st.text_input(
-        "📏 기준선 (원 단위 · 콤마로 여러 개 입력 가능)",
-        value="", placeholder="예: -15, -20", key="gap_levels",
-        help="입력한 값 위치에 노란 수평선이 그려집니다. 아래 % 차트에도 같은 위치가 자동 환산되어 표시돼요.",
-    )
+    g_col1, g_col2 = st.columns([6, 0.7])
+    with g_col1:
+        level_input = st.text_input(
+            "📏 기준선 (원 단위 · 콤마로 여러 개 입력 가능)",
+            value="", placeholder="예: -15, -20", key="gap_levels",
+            help="입력한 값 위치에 노란 수평선이 그려집니다. 아래 % 차트에도 같은 위치가 자동 환산되어 표시돼요.",
+        )
+    with g_col2:
+        st.write("")
+        if st.button("⚡", key="gap_refresh_now",
+                     help="캐시를 비우고 빗썸/환율 시세를 즉시 다시 받아옵니다."):
+            load_bithumb_usdt.clear()
+            load_data.clear()
+            st.rerun()
 
     # 이 탭을 보는 동안 항상 30초마다 자동 새로고침
     if st_autorefresh is not None:
