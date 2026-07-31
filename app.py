@@ -164,6 +164,21 @@ def safe_load(symbol: str, period: str, interval: str) -> pd.DataFrame:
         return pd.DataFrame()
 
 
+@st.cache_data(ttl=120, show_spinner=False)
+def load_bithumb_usdt(interval_code: str) -> pd.DataFrame:
+    """빗썸 공개 API에서 USDT/KRW 캔들 조회 (1m/5m/30m/1h)."""
+    url = f"https://api.bithumb.com/public/candlestick/USDT_KRW/{interval_code}"
+    r = requests.get(url, timeout=10, headers={"User-Agent": "Mozilla/5.0"})
+    js = r.json()
+    if js.get("status") != "0000":
+        raise RuntimeError(f"빗썸 API 오류: {js.get('status')}")
+    df = pd.DataFrame(js["data"],
+                      columns=["ts", "open", "close", "high", "low", "vol"])
+    df["ts"] = pd.to_datetime(df["ts"].astype("int64"), unit="ms", utc=True)
+    df["close"] = df["close"].astype(float)
+    return df.set_index("ts").sort_index()[["close"]]
+
+
 @st.cache_data(ttl=1800, show_spinner=False)
 def load_news() -> list:
     """국내 언론사 경제 뉴스 RSS에서 한국어 헤드라인 수집.
@@ -381,13 +396,13 @@ if rsi_val is not None and pd.notna(sma20_last):
 
     st.markdown(f"""
 <div style="border:1px solid #dbe4f0; background:#f7faff; border-radius:10px;
-            padding:12px 16px; margin:4px 0 8px 0; line-height:1.7;">
+            padding:12px 16px; margin:4px 0 8px 0; line-height:1.7; color:#1f2937;">
   <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin-bottom:6px;">
-    <span style="font-weight:600;">💡 지금 읽기</span>
+    <span style="font-weight:600; color:#1f2937;">💡 지금 읽기</span>
     <span style="background:{v_color}; padding:2px 12px; border-radius:12px;
-                 font-size:14px; font-weight:600;">{verdict}</span>
+                 font-size:14px; font-weight:600; color:#1f2937;">{verdict}</span>
   </div>
-  <div style="font-size:14px;">
+  <div style="font-size:14px; color:#1f2937;">
     <b>이동평균</b> · <b>{sma_short}</b> — {sma_desc}<br>
     <b>RSI</b> · <b>{rsi_short}</b> — {rsi_desc}
   </div>
@@ -599,9 +614,113 @@ if (n > 150) {
 """
 
 # -------------------------------------------------------------
+# 4.7 테더-환율 갭 차트 템플릿 (0선 기준 위 빨강 / 아래 파랑)
+# -------------------------------------------------------------
+GAP_HTML = """
+<style>
+@media (max-width: 640px) {
+  #gwrap { padding: 0 12px; }
+}
+</style>
+<div id="gwrap" style="position:relative; width:100%; height:520px; font-family:sans-serif; box-sizing:border-box;">
+  <div id="glegend" style="position:absolute; top:8px; left:12px; z-index:10;
+       font-size:13px; color:#333; background:rgba(255,255,255,0.85);
+       padding:4px 8px; border-radius:6px; line-height:1.6;"></div>
+  <div id="gchart" style="width:100%; height:100%;"></div>
+</div>
+<script src="https://unpkg.com/lightweight-charts@5.0.8/dist/lightweight-charts.standalone.production.js"></script>
+<script>
+const D = __PAYLOAD__;
+const LWC = LightweightCharts;
+
+const chart = LWC.createChart(document.getElementById('gchart'), {
+  autoSize: true,
+  layout: {
+    background: { color: '#ffffff' }, textColor: '#333',
+    panes: { separatorColor: '#e6e6e6', enableResize: true },
+  },
+  grid: { vertLines: { color: '#f2f3f5' }, horzLines: { color: '#f2f3f5' } },
+  crosshair: {
+    mode: LWC.CrosshairMode.Normal,
+    vertLine: { color: '#9aa0a6', style: 3, labelBackgroundColor: '#4c525e' },
+    horzLine: { color: '#9aa0a6', style: 3, labelBackgroundColor: '#4c525e' },
+  },
+  rightPriceScale: { borderColor: '#d9d9d9' },
+  timeScale: {
+    borderColor: '#d9d9d9', timeVisible: true, secondsVisible: false,
+    rightOffset: 6, barSpacing: 8, minBarSpacing: 1,
+  },
+  handleScroll: {
+    mouseWheel: true, pressedMouseMove: true,
+    horzTouchDrag: true, vertTouchDrag: false,
+  },
+  localization: { locale: 'ko-KR' },
+});
+
+const baseOpts = (fmt) => ({
+  baseValue: { type: 'price', price: 0 },
+  topLineColor: '#d24f45',
+  topFillColor1: 'rgba(210,79,69,0.28)',
+  topFillColor2: 'rgba(210,79,69,0.03)',
+  bottomLineColor: '#1261c4',
+  bottomFillColor1: 'rgba(18,97,196,0.03)',
+  bottomFillColor2: 'rgba(18,97,196,0.28)',
+  lineWidth: 2,
+  priceFormat: fmt,
+  priceLineVisible: false,
+});
+
+// 위: 갭 (원) / 아래: 갭 (%)
+const gapS = chart.addSeries(LWC.BaselineSeries,
+  baseOpts({ type: 'price', precision: 2, minMove: 0.01 }), 0);
+gapS.setData(D.gap);
+gapS.createPriceLine({ price: 0, color: '#9aa0a6', lineWidth: 1, lineStyle: 2 });
+
+const pctS = chart.addSeries(LWC.BaselineSeries,
+  baseOpts({ type: 'price', precision: 3, minMove: 0.001 }), 1);
+pctS.setData(D.pct);
+pctS.createPriceLine({ price: 0, color: '#9aa0a6', lineWidth: 1, lineStyle: 2 });
+
+try {
+  const panes = chart.panes();
+  if (panes[1]) panes[1].setHeight(170);
+} catch (e) {}
+
+const legend = document.getElementById('glegend');
+function renderLegend(g, p) {
+  const col = (v) => v >= 0 ? '#d24f45' : '#1261c4';
+  const gs = (g == null) ? '-' : (g >= 0 ? '+' : '') + g.toFixed(2) + '원';
+  const ps = (p == null) ? '-' : (p >= 0 ? '+' : '') + p.toFixed(3) + '%';
+  legend.innerHTML = '<b>테더 − 환율 갭</b><br>'
+    + '갭 <span style="color:' + col(g ?? 0) + ';font-weight:600">' + gs + '</span> · '
+    + '<span style="color:' + col(p ?? 0) + ';font-weight:600">' + ps + '</span>';
+}
+renderLegend(D.lastGap, D.lastPct);
+chart.subscribeCrosshairMove((param) => {
+  let g = null, p = null;
+  if (param && param.seriesData) {
+    const gd = param.seriesData.get(gapS);
+    const pd = param.seriesData.get(pctS);
+    if (gd) g = gd.value; if (pd) p = pd.value;
+  }
+  if (g == null && p == null) renderLegend(D.lastGap, D.lastPct);
+  else renderLegend(g, p);
+});
+
+const n = D.gap.length;
+if (n > 300) {
+  chart.timeScale().setVisibleLogicalRange({ from: n - 300, to: n + 6 });
+} else {
+  chart.timeScale().fitContent();
+}
+</script>
+"""
+
+# -------------------------------------------------------------
 # 5. 메인 탭
 # -------------------------------------------------------------
-tab1, tab2 = st.tabs(["📈 FX 기술적 분석 차트", "🌍 거시경제 & 뉴스"])
+tab1, tab_gap, tab2 = st.tabs(
+    ["📈 FX 기술적 분석 차트", "🪙 테더-환율 갭", "🌍 거시경제 & 뉴스"])
 
 # ===================== [탭 1] 차트 =====================
 with tab1:
@@ -615,6 +734,75 @@ with tab1:
         "📌 **시그널 규칙** · 매수(▲): RSI가 30을 상향 돌파(과매도 탈출) · "
         "매도(▼): RSI가 70을 하향 돌파(과매수 이탈)"
     )
+
+# ===================== [탭: 테더-환율 갭] =====================
+with tab_gap:
+    st.subheader("🪙 테더(USDT/KRW) − 환율(USD/KRW) 갭")
+
+    GAP_CONF = {
+        "1분봉": ("1m", "1m", "5d", 720),
+        "5분봉": ("5m", "5m", "5d", 864),
+        "30분봉": ("30m", "30m", "1mo", 700),
+        "1시간봉": ("1h", "1h", "1mo", 700),
+    }
+    g_label = st.radio("봉 종류", list(GAP_CONF.keys()), horizontal=True,
+                       key="gap_interval")
+    bit_code, g_yf_iv, g_yf_period, g_tail = GAP_CONF[g_label]
+
+    try:
+        usdt = load_bithumb_usdt(bit_code)
+    except Exception:
+        usdt = pd.DataFrame()
+    fx_g = safe_load("USDKRW=X", g_yf_period, g_yf_iv)
+
+    if usdt.empty:
+        st.warning("빗썸 테더 시세를 불러오지 못했습니다. 잠시 후 다시 시도해주세요.")
+    elif fx_g.empty:
+        st.warning("환율 데이터를 불러오지 못했습니다. 잠시 후 다시 시도해주세요.")
+    else:
+        # 테더(24시간 거래)와 환율(평일만 거래)을 시간 기준으로 맞춤
+        # 환율이 비는 시간(밤/주말)은 마지막 환율을 그대로 사용
+        merged = pd.concat(
+            [usdt["close"].rename("usdt"), fx_g["Close"].rename("fx")],
+            axis=1).sort_index()
+        merged["fx"] = merged["fx"].ffill()
+        merged = merged.dropna()
+        merged = merged[merged.index.isin(usdt.index)].tail(g_tail)
+
+        if len(merged) < 5:
+            st.warning("두 데이터의 겹치는 구간이 부족합니다. 다른 봉 종류를 선택해보세요.")
+        else:
+            merged["gap"] = merged["usdt"] - merged["fx"]              # 수식 1: 원
+            merged["pct"] = merged["gap"] / merged["fx"] * 100         # 수식 2: %
+
+            last_usdt = float(merged["usdt"].iloc[-1])
+            last_fx = float(merged["fx"].iloc[-1])
+            last_gap = float(merged["gap"].iloc[-1])
+            last_pct = float(merged["pct"].iloc[-1])
+
+            g1, g2, g3, g4 = st.columns(4)
+            g1.metric("테더 (빗썸)", f"{last_usdt:,.2f}원")
+            g2.metric("환율 (USD/KRW)", f"{last_fx:,.2f}원")
+            g3.metric("갭 (원)", f"{last_gap:+,.2f}원")
+            g4.metric("갭 (%)", f"{last_pct:+.3f}%")
+
+            g_times = to_epoch(merged.index)
+            g_payload = json.dumps({
+                "gap": series_json(g_times, merged["gap"]),
+                "pct": series_json(g_times, merged["pct"]),
+                "lastGap": round(last_gap, 2),
+                "lastPct": round(last_pct, 3),
+            })
+            components.html(GAP_HTML.replace("__PAYLOAD__", g_payload), height=530)
+
+            st.caption(
+                "🖱️ 위 차트: 갭(원) = 빗썸 테더가 − 환율 · 아래 차트: 갭(%) = 갭 ÷ 환율 × 100 · "
+                "0선 위(빨강)는 테더가 환율보다 비싼 프리미엄, 아래(파랑)는 디스카운트"
+            )
+            st.info(
+                "📌 환율은 평일 장중에만 움직이므로, 밤·주말에는 마지막 환율을 기준으로 갭을 계산합니다. "
+                "테더 시세는 빗썸 실시간, 환율은 야후 지연 시세라 트레이딩뷰 수치와 소수점 수준의 차이가 있을 수 있어요."
+            )
 
 # ===================== [탭 2] 거시경제 & 뉴스 =====================
 with tab2:
