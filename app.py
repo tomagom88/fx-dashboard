@@ -164,7 +164,7 @@ def safe_load(symbol: str, period: str, interval: str) -> pd.DataFrame:
         return pd.DataFrame()
 
 
-@st.cache_data(ttl=120, show_spinner=False)
+@st.cache_data(ttl=30, show_spinner=False)
 def load_bithumb_usdt(interval_code: str) -> pd.DataFrame:
     """빗썸 공개 API에서 USDT/KRW 캔들 조회 (1m/5m/30m/1h)."""
     url = f"https://api.bithumb.com/public/candlestick/USDT_KRW/{interval_code}"
@@ -775,11 +775,35 @@ with tab_gap:
                        key="gap_interval")
     bit_code, g_yf_iv, g_yf_period, g_tail = GAP_CONF[g_label]
 
-    level_input = st.text_input(
-        "📏 기준선 (원 단위 · 콤마로 여러 개 입력 가능)",
-        value="", placeholder="예: -15, -20", key="gap_levels",
-        help="입력한 값 위치에 노란 수평선이 그려집니다. 아래 % 차트에도 같은 위치가 자동 환산되어 표시돼요.",
-    )
+    g_col1, g_col2, g_col3 = st.columns([5, 1.6, 0.7])
+    with g_col1:
+        level_input = st.text_input(
+            "📏 기준선 (원 단위 · 콤마로 여러 개 입력 가능)",
+            value="", placeholder="예: -15, -20", key="gap_levels",
+            help="입력한 값 위치에 노란 수평선이 그려집니다. 아래 % 차트에도 같은 위치가 자동 환산되어 표시돼요.",
+        )
+    with g_col2:
+        st.write("")
+        gap_auto = st.toggle(
+            "🔄 자동 (30초)", key="gap_auto",
+            help="이 탭을 열어둔 동안 30초마다 최신 시세를 다시 불러옵니다.",
+        )
+    with g_col3:
+        st.write("")
+        if st.button("⚡", key="gap_refresh_now",
+                     help="캐시를 비우고 빗썸/환율 시세를 즉시 다시 받아옵니다."):
+            load_bithumb_usdt.clear()
+            load_data.clear()
+            st.rerun()
+
+    if gap_auto:
+        if st_autorefresh is not None:
+            st_autorefresh(interval=30_000, key="gap_refresh_tick")
+            st.caption(f"🔄 자동 갱신 작동 중 · 마지막 갱신 "
+                       f"{pd.Timestamp.now(tz='Asia/Seoul').strftime('%H:%M:%S')} (KST)")
+        else:
+            st.warning("자동 새로고침 패키지가 없습니다. requirements.txt를 확인해주세요.")
+
     user_levels = []
     for tok in level_input.replace(" ", "").split(","):
         if tok:
