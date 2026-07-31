@@ -660,26 +660,39 @@ const chart = LWC.createChart(document.getElementById('gchart'), {
 const baseOpts = (fmt) => ({
   baseValue: { type: 'price', price: 0 },
   topLineColor: '#d24f45',
-  topFillColor1: 'rgba(210,79,69,0.28)',
-  topFillColor2: 'rgba(210,79,69,0.03)',
+  topFillColor1: 'rgba(210,79,69,0.35)',
+  topFillColor2: 'rgba(210,79,69,0.06)',
   bottomLineColor: '#1261c4',
-  bottomFillColor1: 'rgba(18,97,196,0.03)',
-  bottomFillColor2: 'rgba(18,97,196,0.28)',
-  lineWidth: 2,
+  bottomFillColor1: 'rgba(18,97,196,0.06)',
+  bottomFillColor2: 'rgba(18,97,196,0.35)',
+  lineWidth: 3,
   priceFormat: fmt,
   priceLineVisible: false,
+  autoscaleInfoProvider: (original) => {
+    const res = original();
+    if (res && res.priceRange) {
+      res.priceRange.minValue = Math.min(res.priceRange.minValue, 0);
+      res.priceRange.maxValue = Math.max(res.priceRange.maxValue, 0);
+      const span = res.priceRange.maxValue - res.priceRange.minValue;
+      res.priceRange.minValue -= span * 0.08;
+      res.priceRange.maxValue += span * 0.08;
+    }
+    return res;
+  },
 });
 
 // 위: 갭 (원) / 아래: 갭 (%)
 const gapS = chart.addSeries(LWC.BaselineSeries,
   baseOpts({ type: 'price', precision: 2, minMove: 0.01 }), 0);
 gapS.setData(D.gap);
-gapS.createPriceLine({ price: 0, color: '#9aa0a6', lineWidth: 1, lineStyle: 2 });
+gapS.createPriceLine({ price: 0, color: '#5f5e5a', lineWidth: 2,
+  lineStyle: 0, axisLabelVisible: true, title: '기준 0' });
 
 const pctS = chart.addSeries(LWC.BaselineSeries,
   baseOpts({ type: 'price', precision: 3, minMove: 0.001 }), 1);
 pctS.setData(D.pct);
-pctS.createPriceLine({ price: 0, color: '#9aa0a6', lineWidth: 1, lineStyle: 2 });
+pctS.createPriceLine({ price: 0, color: '#5f5e5a', lineWidth: 2,
+  lineStyle: 0, axisLabelVisible: true, title: '기준 0' });
 
 try {
   const panes = chart.panes();
@@ -708,8 +721,8 @@ chart.subscribeCrosshairMove((param) => {
 });
 
 const n = D.gap.length;
-if (n > 300) {
-  chart.timeScale().setVisibleLogicalRange({ from: n - 300, to: n + 6 });
+if (n > 180) {
+  chart.timeScale().setVisibleLogicalRange({ from: n - 180, to: n + 6 });
 } else {
   chart.timeScale().fitContent();
 }
