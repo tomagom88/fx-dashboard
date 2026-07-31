@@ -657,7 +657,7 @@ const chart = LWC.createChart(document.getElementById('gchart'), {
   },
   handleScroll: {
     mouseWheel: true, pressedMouseMove: true,
-    horzTouchDrag: true, vertTouchDrag: false,
+    horzTouchDrag: true, vertTouchDrag: true,
   },
   localization: { locale: 'ko-KR' },
 });
