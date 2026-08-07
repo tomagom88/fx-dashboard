@@ -518,7 +518,6 @@ const chart = LWC.createChart(document.getElementById('chart'), {
     borderColor: '#d9d9d9',
     timeVisible: D.intraday, secondsVisible: false,
     rightOffset: 6, barSpacing: 8, minBarSpacing: 0.5,
-    fixLeftEdge: true, fixRightEdge: true,
   },
   handleScroll: {
     mouseWheel: true, pressedMouseMove: true,
@@ -661,7 +660,6 @@ const chart = LWC.createChart(document.getElementById('gchart'), {
   timeScale: {
     borderColor: '#d9d9d9', timeVisible: true, secondsVisible: false,
     rightOffset: 6, barSpacing: 8, minBarSpacing: 0.5,
-    fixLeftEdge: true, fixRightEdge: true,
   },
   handleScroll: {
     mouseWheel: true, pressedMouseMove: true,
@@ -779,10 +777,10 @@ with tab_gap:
     st.subheader("🪙 테더(USDT/KRW) − 환율(USD/KRW) 갭")
 
     GAP_CONF = {
-        "1분봉": ("1m", "1m", "5d", 720),
-        "5분봉": ("5m", "5m", "5d", 864),
-        "30분봉": ("30m", "30m", "1mo", 700),
-        "1시간봉": ("1h", "1h", "1mo", 700),
+        "1분봉": ("1m", "1m", "5d", 3000),
+        "5분봉": ("5m", "5m", "5d", 3000),
+        "30분봉": ("30m", "30m", "1mo", 2000),
+        "1시간봉": ("1h", "1h", "1mo", 2000),
     }
     g_label = st.radio("봉 종류", list(GAP_CONF.keys()), horizontal=True,
                        key="gap_interval")
