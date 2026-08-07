@@ -70,17 +70,6 @@ INTERVALS = {
 with st.sidebar:
     st.header("⚙️ 설정")
 
-    st.subheader("🕐 타임프레임")
-    iv_label = st.selectbox("봉 종류", list(INTERVALS.keys()), index=0)
-    iv_conf = INTERVALS[iv_label]
-    period_options = list(iv_conf["periods"].keys())
-    period_label = st.selectbox(
-        "조회 기간", period_options,
-        index=period_options.index(iv_conf["default"]),
-        help="분봉은 야후 파이낸스 정책상 최근 데이터만 조회 가능해 선택지가 자동 제한됩니다. (1분봉: 최대 7일)",
-    )
-
-    st.divider()
     st.subheader("🔔 매수/매도 시그널 알림")
     alert_on = st.toggle(
         "알림 켜기 (자동 새로고침)",
@@ -113,6 +102,17 @@ with st.sidebar:
 </button>""", height=45)
 
 ticker = PAIRS[pair_label]
+
+# 봉 종류/기간은 '환율 분석 차트' 탭 안의 버튼에서 선택 (세션 상태로 공유)
+iv_label = st.session_state.get("fx_interval", "5분봉")
+if iv_label not in INTERVALS:
+    iv_label = "5분봉"
+iv_conf = INTERVALS[iv_label]
+period_options = list(iv_conf["periods"].keys())
+period_label = st.session_state.get("fx_period", iv_conf["default"])
+if period_label not in period_options:
+    period_label = iv_conf["default"]
+
 tf = {"period": iv_conf["periods"][period_label], "interval": iv_conf["interval"]}
 tf_label = f"{period_label} · {iv_label}"
 is_intraday = tf["interval"] in ("1m", "5m", "15m", "30m", "1h")
@@ -761,6 +761,23 @@ tab_gap, tab1, tab2 = st.tabs(
 
 # ===================== [탭 1] 차트 =====================
 with tab1:
+    fx_iv = st.radio("봉 종류", list(INTERVALS.keys()), horizontal=True,
+                     index=list(INTERVALS.keys()).index(iv_label),
+                     key="fx_interval_pick")
+    fx_periods = list(INTERVALS[fx_iv]["periods"].keys())
+    fx_pd_default = period_label if (fx_iv == iv_label and period_label in fx_periods) \
+        else INTERVALS[fx_iv]["default"]
+    fx_pd = st.radio("조회 기간", fx_periods, horizontal=True,
+                     index=fx_periods.index(fx_pd_default),
+                     key="fx_period_pick",
+                     help="분봉은 야후 정책상 최근 데이터만 조회 가능해 선택지가 자동 제한됩니다. (1분봉: 최대 7일)")
+
+    # 선택이 바뀌면 세션에 저장하고 다시 그리기
+    if fx_iv != iv_label or fx_pd != period_label:
+        st.session_state["fx_interval"] = fx_iv
+        st.session_state["fx_period"] = fx_pd
+        st.rerun()
+
     components.html(CHART_HTML.replace("__PAYLOAD__", payload), height=710)
     st.caption(
         "🖱️ **조작법** · 차트 드래그: 좌우 이동 · 마우스 휠: 확대/축소 · "
