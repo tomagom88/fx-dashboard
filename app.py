@@ -517,7 +517,8 @@ const chart = LWC.createChart(document.getElementById('chart'), {
   timeScale: {
     borderColor: '#d9d9d9',
     timeVisible: D.intraday, secondsVisible: false,
-    rightOffset: 6, barSpacing: 8, minBarSpacing: 1,
+    rightOffset: 6, barSpacing: 8, minBarSpacing: 0.5,
+    fixLeftEdge: true, fixRightEdge: true,
   },
   handleScroll: {
     mouseWheel: true, pressedMouseMove: true,
@@ -575,12 +576,18 @@ hist.setData(D.hist);
 mkLine(D.macd, '#d24f45', 1, 2, false);
 mkLine(D.macdSig, '#1261c4', 1, 2, false);
 
-// 보조지표 창 높이 조절
-try {
-  const panes = chart.panes();
-  if (panes[1]) panes[1].setHeight(120);
-  if (panes[2]) panes[2].setHeight(120);
-} catch (e) {}
+// 보조지표 창 높이 조절 (전체 높이에 비례해 계산)
+function resizePanes() {
+  try {
+    const total = document.getElementById('chart').clientHeight || 700;
+    const sub = Math.max(110, Math.round(total * 0.21));
+    const panes = chart.panes();
+    if (panes[1]) panes[1].setHeight(sub);
+    if (panes[2]) panes[2].setHeight(sub);
+  } catch (e) {}
+}
+resizePanes();
+window.addEventListener('resize', resizePanes);
 
 // ---- 좌상단 실시간 시세 레전드 (업비트 스타일) ----
 const legend = document.getElementById('legend');
@@ -653,7 +660,8 @@ const chart = LWC.createChart(document.getElementById('gchart'), {
   rightPriceScale: { borderColor: '#d9d9d9' },
   timeScale: {
     borderColor: '#d9d9d9', timeVisible: true, secondsVisible: false,
-    rightOffset: 6, barSpacing: 8, minBarSpacing: 1,
+    rightOffset: 6, barSpacing: 8, minBarSpacing: 0.5,
+    fixLeftEdge: true, fixRightEdge: true,
   },
   handleScroll: {
     mouseWheel: true, pressedMouseMove: true,
