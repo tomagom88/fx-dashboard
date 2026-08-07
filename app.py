@@ -57,7 +57,7 @@ PAIRS = {pair_label: "USDKRW=X"}
 
 # 봉 종류별 yfinance 허용 조회 기간 (분봉은 최근 데이터만 제공됨)
 INTERVALS = {
-    "1분봉":   {"interval": "1m",  "periods": {"1일": "1d", "5일": "5d", "7일": "7d"}, "default": "1일"},
+    "1분봉":   {"interval": "1m",  "periods": {"1일": "1d", "5일": "5d", "7일": "7d"}, "default": "7일"},
     "5분봉":   {"interval": "5m",  "periods": {"1일": "1d", "5일": "5d", "1개월": "1mo"}, "default": "5일"},
     "15분봉":  {"interval": "15m", "periods": {"5일": "5d", "1개월": "1mo", "2개월": "60d"}, "default": "5일"},
     "30분봉":  {"interval": "30m", "periods": {"5일": "5d", "1개월": "1mo", "2개월": "60d"}, "default": "1개월"},
@@ -104,9 +104,9 @@ with st.sidebar:
 ticker = PAIRS[pair_label]
 
 # 봉 종류/기간은 '환율 분석 차트' 탭 안의 버튼에서 선택 (세션 상태로 공유)
-iv_label = st.session_state.get("fx_interval", "5분봉")
+iv_label = st.session_state.get("fx_interval", "1분봉")
 if iv_label not in INTERVALS:
-    iv_label = "5분봉"
+    iv_label = "1분봉"
 iv_conf = INTERVALS[iv_label]
 period_options = list(iv_conf["periods"].keys())
 period_label = st.session_state.get("fx_period", iv_conf["default"])
