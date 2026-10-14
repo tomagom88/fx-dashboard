@@ -1,0 +1,48 @@
+name: FX 매수·매도 시그널 텔레그램 알림
+
+on:
+  schedule:
+    # 10분마다 실행 시도 (GitHub 무료 플랜은 실제로 10~20분 이상 지연될 수 있음)
+    - cron: "*/10 * * * *"
+  # Actions 탭에서 수동 실행 (테스트 메시지 보내기 옵션 포함)
+  workflow_dispatch:
+    inputs:
+      test:
+        description: "테스트 메시지만 보내기 (연결 확인용)"
+        type: boolean
+        default: false
+
+# 같은 시그널 중복 발송을 막기 위한 기록 파일(last_alert.json)을 저장소에 갱신하려면 필요
+permissions:
+  contents: write
+
+jobs:
+  check-signal:
+    runs-on: ubuntu-latest
+    steps:
+      - name: 저장소 코드 가져오기
+        uses: actions/checkout@v4
+
+      - name: 파이썬 설치
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: 필요 패키지 설치
+        run: pip install yfinance pandas numpy requests
+
+      - name: 시그널 확인 및 알림 발송
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          TEST_MODE: ${{ github.event.inputs.test }}
+        run: python telegram_alert.py
+
+      - name: 발송 기록 저장 (중복 알림 방지)
+        run: |
+          if [ -f last_alert.json ]; then
+            git config user.name "signal-bot"
+            git config user.email "signal-bot@users.noreply.github.com"
+            git add last_alert.json
+            git diff --cached --quiet || (git commit -m "update last alert" && git push)
+          fi
